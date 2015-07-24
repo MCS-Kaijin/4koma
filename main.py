@@ -1,90 +1,98 @@
 # coding: utf-8
 
 import requests
-import zipfile
-import sys
 import re
-import os
+import ui
 
-# get manga title
-manga = raw_input('Manga: ').strip().lower()
-dirname = manga.replace(' ','-')
-if not os.path.exists(dirname): os.mkdir(dirname)
-os.chdir(dirname)
-manga = manga.replace(' ', '_')
+gui = ui.load_view('main')
 
-# get links on main manga page
-url = 'http://www.mangatown.com/manga/{}'.format(manga)
-source = requests.get(url, stream=True)
-source = source.content.split('\n')
-links = []
+page = 1
 
-for line in source:
-	link = re.match((r'[^a]+a href="(?P<href>[^"]+)".+'), line)
-	if link:
-	tmp = re.search((r'{}'.format(manga)), link.group('href'))
-	if tmp:
-	links.append(link.group('href'))
+def get_yonkoma(url):
 
-#visit each link and extract all the pages in each chapter
-with open('links.txt', 'w') as f:
-	pass
-	
-img_urls = []
-new_links = []
-links.reverse()
-for link in links:
-	print 'Getting links from: '+link
-	source = requests.get(link, stream=True)
-	source = source.content.split('\n')
-	for line in source:
-	new_link = re.match((r'[^o]+option value="http(?P<href>[^"]+).+'), line)
-	if new_link:
-	try:
-	l = new_links.index('http'+new_link.group('href'))
-	new_links.pop()
-	except:
-	new_links.append('http'+new_link.group('href'))
-i = 0
-with open('links.txt', 'r') as f:
-	lnks = f.read().split('\n')
-	if lnks:
-	for link in lnks:
-	try: new_links.remove(link)
-	except: pass
-	i += 1
-for link in new_links:
-	print 'Downloading: '+link
-	source = requests.get(link, stream=True)
-	source = source.content.split('\n')
-	for line in source:
-	tmp1 = re.search((r'[^<]+id="image".+'), line)
-	if tmp1:
-	tmp = re.search((r'src="(?P<img_url>[^"]+).+'), tmp1.group())
-	print tmp.group('img_url')
-	if tmp:
-	img_urls.append(tmp.group('img_url'))
-	txt = ''
-	with open('links.txt', 'r') as f:
-	txt = f.read()
-	with open('links.txt', 'w') as f:
-	f.truncate()
-	f.write(txt+'\n'+link)
+	source = requests.get(url).content.split('\n')
 
-# download images
-for img in img_urls:
-	print 'Getting image: '+img
-	im = requests.get(img, stream=True)
-	with open(dirname+'_'+str(i)+'.jpg', 'wb') as f:
-	f.write(im.content)
-	i+=1
-os.chdir('..')
-op = raw_input('Make zip file? ')
-if(op == 'y'):
-	with zipfile.ZipFile(dirname+'.zip', 'w') as z:
-	for root, dirs, files in os.walk(dirname):
-	for file in files:
-	z.write(os.path.join(root, file))
-with open('pageturnedx', 'w') as f:
-	f.write('0')
-print 'Done.'
+	entries = []
+
+	for line in range(0, source.index(source[-1])):
+		tmp = re.match((r'[^<]+<article class="entry.+'), source[line])
+		if tmp:
+			info = []
+			line += 1
+			tmp = re.search((r'href="(?P<href>[^"]+)'), source[line])
+			if tmp:
+				ns = requests.get(tmp.group('href')).content.split('\n')
+				for nl in range(0, ns.index(ns[-1])):
+					tmp = re.search((r'div class="body"'), ns[nl])
+					if tmp:
+						nl += 1
+						tmp = re.search((r'src="(?P<src>[^"]+)'), ns[nl])
+						if tmp:
+							info.append(tmp.group('src'))
+			line += 2
+			tmp = re.search((r'alt="(?P<alt>[^"]+)'), source[line])
+			if tmp:
+				info.append(tmp.group('alt'))
+			tmp = re.search((r'src="(?P<src>[^"]+)'), source[line])
+			if tmp:
+				info.append(tmp.group('src'))
+			line += 7
+			tmp = {'comic': info[0], 'title': info[1], 'preview': info[2]}
+			entries.append(tmp)
+	return entries
+
+def hide_yonkama(sender):
+	vw = sender.superview
+	sender.alpha = 0
+	vw['scrollview1'].alpha = 1
+
+def view_yonkama(obj):
+	vw = gui['view1']
+	vw['scrollview1'].alpha = 0
+	vw['webview1'].load_url(obj.href)
+	vw['button1'].alpha = 1
+
+class viw(ui.View):
+	tx, ty = 0, 0
+	def __init__(self, href):
+		self.href = href
+	def touch_began(self, touch):
+		self.tx, self.ty = touch.location
+	def touch_ended(self, touch):
+		x, y = touch.location
+		if x < self.tx+50 and x > self.tx-50 and y < self.ty+50 and y > self.ty-50:
+			view_yonkama(self)
+
+y = 0
+def add_yonkoma(entries):
+	global y
+	for entry in entries:
+		w, h = gui['view1']['scrollview1'].content_size
+		h += 110
+		im = ui.ImageView()
+		im.load_from_url(entry['preview'])
+		im.frame = (0, y, 100, 100)
+		lbl = ui.Label()
+		lbl.text = entry['title']
+		lbl.frame = (110, y+40, 500, 20)
+		vw = viw(entry['comic'])
+		vw.frame = (0, y, 610, 100)
+		y += 110
+		gui['view1']['scrollview1'].add_subview(im)
+		gui['view1']['scrollview1'].add_subview(lbl)
+		gui['view1']['scrollview1'].add_subview(vw)
+		gui['view1']['scrollview1'].content_size = (w,h)
+entries = get_yonkoma('http://4komaparty.com')
+add_yonkoma(entries)
+
+def load_more(sender):
+	global page
+	page += 1
+	entries = get_yonkoma('http://4komaparty.com/page/{}'.format(page))
+	add_yonkoma(entries)
+
+gui['view1']['button1'].action = hide_yonkama
+gui['view1']['button1'].alpha = 0
+gui['view1']['button2'].action = load_more
+
+gui.present(hide_title_bar=True)
