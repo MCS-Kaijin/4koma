@@ -14,7 +14,7 @@ def get_yonkoma(url):
 
 	entries = []
 
-	for line in range(0, source.index(source[-1])):
+	for line in range(0, len(source)-1):
 		tmp = re.match((r'[^<]+<article class="entry.+'), source[line])
 		if tmp:
 			info = []
